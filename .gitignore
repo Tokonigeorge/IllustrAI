@@ -1,0 +1,7 @@
+node_modules
+.next
+.venv
+.cursorrules
+__pycache__
+.d.ts
+.DS_Store
