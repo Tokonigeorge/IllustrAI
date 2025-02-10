@@ -22,9 +22,18 @@ export default function Home() {
     setLoading(true);
 
     try {
+      const formData = new FormData();
+      formData.append('file', pdfFile);
+
+      //upload pdf to mongodb
+      const uploadResponse = await axios.post('/api/py/upload', formData);
+
+      const fileId = uploadResponse.data.file_id;
+
+      if (!fileId) throw new Error('Failed to upload PDF');
       await axios
         .post('/api/py/process', {
-          pdfFilename: pdfFile.name,
+          file_id: fileId,
           prompt: promptText,
         })
         .then((response: any) => {
@@ -58,12 +67,6 @@ export default function Home() {
         >
           {loading ? 'Processing...' : 'Send'}
         </button>
-        {/* <p className='fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30'>
-          Get started by editing FastApi API&nbsp;
-          <Link href='/api/py/helloFastApi'>
-            <code className='font-mono font-bold'>api/index.py</code>
-          </Link>
-        </p> */}
       </div>
     </main>
   );
