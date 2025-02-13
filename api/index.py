@@ -1,11 +1,15 @@
-from fastapi import FastAPI, UploadFile, HTTPException, File
+from fastapi import FastAPI, UploadFile, HTTPException
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from gridfs import GridFS
 from bson.objectid import ObjectId
 from dotenv import load_dotenv
+from api.processor import PDFProcessingService
 import os
 from contextlib import asynccontextmanager
+import uvicorn
+from starlette.middleware.cors import CORSMiddleware
+
 # Load environment variables
 dotenv_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(dotenv_path)
@@ -15,7 +19,8 @@ MONGODB_USERNAME = os.getenv("MONGODB_USERNAME")
 MONGODB_PASSWORD = os.getenv("MONGODB_PASSWORD")
 MONGODB_CLUSTER = os.getenv("MONGODB_CLUSTER", "metadata.oj7wh.mongodb.net")
 
-uri = f"mongodb+srv://{MONGODB_USERNAME}:{MONGODB_PASSWORD}@{MONGODB_CLUSTER}/?retryWrites=true&w=majority&appName=metadata"
+
+uri = f"mongodb+srv://{MONGODB_USERNAME}:{MONGODB_PASSWORD}@{MONGODB_CLUSTER}/?retryWrites=true&w=majority&appName=metadata&tls=true"
 client = MongoClient(uri, server_api=ServerApi('1'))
 db = client["generate_hub"]
 fs = GridFS(db)
@@ -43,7 +48,27 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="IllustrAI API",
     description="API for PDF processing and metadata management",
     docs_url="/api/py/docs",
-    openapi_url="/api/py/openapi.json")
+    openapi_url="/api/py/openapi.json",  lifespan=lifespan, root_path_in_servers=False,
+    timeout=600    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "api.index:app",
+        host="0.0.0.0",
+        port=8000,
+        timeout_keep_alive=600,
+        limit_concurrency=10,
+        limit_max_requests=10,
+        workers=4 , # Adjust based on your CPU cores
+          timeout_graceful_shutdown=300 
+    )
 
 @app.get("/api/py/health")
 async def health_check():
@@ -54,6 +79,7 @@ async def health_check():
 async def upload_pdf(file: UploadFile):
     """Uploads PDF to mongodb and returns file id"""
     try:
+        print(f"Uploading file: {file.filename}")
         contents = await file.read()
         file_id = fs.put(contents, filename=file.filename)
         return {"success": True, "file_id": str(file_id), "filename": file.filename}
@@ -61,10 +87,12 @@ async def upload_pdf(file: UploadFile):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         await file.close()
+
     
 @app.post("/api/py/process")
 async def process_pdf(data: dict):
     """Processes PDF and returns metadata"""
+    print("processing pdf...")
     file_id = data.get("file_id")
     prompt = data.get("prompt")
 
@@ -75,10 +103,10 @@ async def process_pdf(data: dict):
         file_data = fs.get(ObjectId(file_id))
         pdf_content = file_data.read()
 
-        #TODO: Process PDF content here
-        print(f"Processing PDF content for file_id: {file_id}")
-        
-        return {"success": True, "message": "PDF content processed successfully"}
+        processing_service = PDFProcessingService()
+        result = await processing_service.process_document(pdf_content, prompt)
+       
+        return {"success": True, "results": result["results"]}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
